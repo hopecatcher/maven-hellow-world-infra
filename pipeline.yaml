@@ -25,7 +25,6 @@ spec:
         git checkout $(params.env)
         git log $(params.env) | awk '{print substr($0,8,7);exit}' > ../git-commit
         cd ..
-        rm -rf ./maven-hellow-world
         git clone https://github.com/hopecatcher/maven-hellow-world-infra.git
         cd maven-hellow-world-infra
         git checkout $(params.env)
