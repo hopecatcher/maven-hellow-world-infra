@@ -1,0 +1,118 @@
+apiVersion: tekton.dev/v1beta1
+kind: Pipeline
+metadata:
+  name: hello-world-pipeline
+  namespace: java-app
+spec:
+  params:
+  - default: 'dev'
+    name: env
+    type: string
+  tasks:
+  - name: clone-code
+    params:
+    - name: BASE_IMAGE
+      value: docker.io/alpine/git:v2.26.2@sha256:23618034b0be9205d9cc0846eb711b12ba4c9b468efdd8a59aac1d7b1a23363f
+    - name: GIT_USER_NAME
+      value: mshaaban
+    - name: GIT_USER_EMAIL
+      value: mshaaban@redhat.com
+    - name: GIT_SCRIPT
+      value: |
+        cd "$(workspaces.source.path)"/
+        git clone https://github.com/hopecatcher/maven-hellow-world.git
+        cd maven-hellow-world
+        git checkout $(params.env)
+        git log $(params.env) | awk '{print substr($0,8,7);exit}' > ../git-commit
+        cd ..
+        rm -rf ./maven-hellow-world
+        git clone https://github.com/hopecatcher/maven-hellow-world-infra.git
+        cd maven-hellow-world-infra
+        git checkout $(params.env)
+    - name: USER_HOME
+      value: /tekton/home
+    - name: VERBOSE
+      value: "true"
+    taskRef:
+      kind: ClusterTask
+      name: git-client
+    workspaces:
+    - name: source
+      workspace: code
+  # - name: apply-unit-tests
+  #   params:
+  #   - name: GOALS
+  #     value: 
+  #       - test
+  #   - name: CONTEXT_DIR
+  #     value: ./maven-hellow-world/app/
+  #   - name: MAVEN_IMAGE
+  #     value: image-registry.openshift-image-registry.svc:5000/openshift/java:latest
+  #   runAfter:
+  #   - clone-code
+  #   taskRef:
+  #     kind: ClusterTask
+  #     name: maven-client
+  #   workspaces:
+  #   - name: source
+  #     workspace: code
+  - name: change-image-tag
+    params:
+    - name: SCRIPT
+      value: |
+        tag=`cat git-commit`
+        buildname="hello-world:$tag" yq e -i '.spec.output.to.name |= strenv(buildname) | ..style="double"' maven-hellow-world-infra/manifests/buildconfig.yaml
+        deployname="image-registry.openshift-image-registry.svc:5000/java-app/hello-world:$tag" yq e -i '.spec.template.spec.containers[0].image |= strenv(deployname) | ..style="double"' maven-hellow-world-infra/manifests/deploymentconfig.yaml
+    - name: files
+      value: []
+    - name: image
+      value: docker.io/mikefarah/yq:4.27.5@sha256:2be3626ed633fbe1fc33ee9343a1256a6be53334412b2251b9a859f8c145bb53
+    runAfter:
+    - clone-code
+    taskRef:
+      kind: ClusterTask
+      name: yq
+    workspaces:
+    - name: source
+      workspace: code
+  - name: push-update
+    params:
+    - name: BASE_IMAGE
+      value: docker.io/alpine/git:v2.26.2@sha256:23618034b0be9205d9cc0846eb711b12ba4c9b468efdd8a59aac1d7b1a23363f
+    - name: GIT_USER_NAME
+      value: mshaaban
+    - name: GIT_USER_EMAIL
+      value: mshaaban@redhat.com
+    - name: GIT_SCRIPT
+      value: |
+        cd "$(workspaces.source.path)"/maven-hellow-world-infra
+        git add . -A
+        git commit -m "build of code commit $(cat ../git-commit) of $(params.env) environment" 
+        git push -u origin $(params.env)
+    - name: USER_HOME
+      value: /tekton/home
+    - name: VERBOSE
+      value: "true"
+    runAfter:
+    - change-image-tag
+    taskRef:
+      kind: ClusterTask
+      name: git-client
+    workspaces:
+    - name: source
+      workspace: code
+  finally:
+  - name: cleanup
+    params:
+    - name: script 
+      value: |-
+        cd $(workspaces.manifests-dir.path)/
+         rm -rf ./*
+    taskRef:
+      kind: ClusterTask
+      name: bash
+    workspaces:
+    - name: manifests-dir
+      workspace: code
+  workspaces:
+  - name: code
