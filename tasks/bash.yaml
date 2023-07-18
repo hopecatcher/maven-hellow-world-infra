@@ -1,0 +1,19 @@
+apiVersion: tekton.dev/v1beta1
+kind: ClusterTask
+metadata:
+  name: bash
+spec:
+  params:
+    - name: script
+      type: string
+  steps:
+    - image: 'registry.access.redhat.com/ubi9/ubi-minimal'
+      name: ''
+      resources: {}
+      script: |
+        $(params.script)
+  workspaces:
+    - description: >-
+        The workspace which contains the manifests to cleanup.
+      name: manifests-dir
+      optional: true
